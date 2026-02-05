@@ -3,6 +3,10 @@ import os
 import json
 import sys
 
+# Add script directory to path to import benford
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+import benford
+
 def analyze_je(file_path):
     print(f"Analyzing {file_path}...")
     try:
@@ -11,14 +15,10 @@ def analyze_je(file_path):
         print(f"Error reading file: {e}")
         sys.exit(1)
 
-    # Clean Debit column
-    # Convert to numeric, coercing errors (like '.') to NaN
-    df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce')
-
-    # Fill NaN with 0 for calculations if appropriate, or just ignore.
-    # Usually in accounting, blank debit means 0.
-    df['Debit'] = df['Debit'].fillna(0.0)
-    df['Credit'] = df['Credit'].fillna(0.0)
+    # Clean Debit and Credit columns
+    # Convert to numeric, coercing errors (like '.') to NaN, then fill with 0.0
+    df['Debit'] = pd.to_numeric(df['Debit'], errors='coerce').fillna(0.0)
+    df['Credit'] = pd.to_numeric(df['Credit'], errors='coerce').fillna(0.0)
 
     # Basic Statistics
     row_count = len(df)
@@ -56,11 +56,38 @@ Unique GL Accounts: {unique_gl_accounts}
     output_dir = "analysis_output"
     os.makedirs(output_dir, exist_ok=True)
 
+    # Benford's Law Analysis
+    print("Performing Benford's Law analysis...")
+
+    benford_files = []
+
+    for col in ['Debit', 'Credit']:
+        print(f"  Processing {col}...")
+        stats = benford.calculate_benford_stats(df[col])
+
+        if stats is not None:
+            # Save stats to CSV
+            csv_filename = f"benford_stats_{col.lower()}.csv"
+            stats.to_csv(os.path.join(output_dir, csv_filename), index=False)
+            benford_files.append(csv_filename)
+
+            # Generate Plot
+            plot_filename = f"benford_plot_{col.lower()}.png"
+            benford.plot_benford(stats, f"Benford's Law Analysis - {col}", os.path.join(output_dir, plot_filename))
+            benford_files.append(plot_filename)
+
+            report_text += f"\nBenford Analysis ({col}):\n"
+            report_text += f"  - Stats saved to {csv_filename}\n"
+            report_text += f"  - Plot saved to {plot_filename}\n"
+        else:
+            report_text += f"\nBenford Analysis ({col}): Not enough data.\n"
+
     # Write text report
     with open(os.path.join(output_dir, "summary.txt"), "w") as f:
         f.write(report_text)
 
-    # Write JSON report
+    # Update and write JSON report
+    summary["benford_files"] = benford_files
     with open(os.path.join(output_dir, "summary.json"), "w") as f:
         json.dump(summary, f, indent=4)
 
